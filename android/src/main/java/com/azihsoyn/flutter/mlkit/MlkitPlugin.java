@@ -8,9 +8,10 @@ import android.graphics.Matrix;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.net.Uri;
+import android.util.Log;
+
 import androidx.annotation.NonNull;
 import androidx.exifinterface.media.ExifInterface;
-import android.util.Log;
 
 import com.google.android.gms.tasks.Continuation;
 import com.google.android.gms.tasks.OnFailureListener;
@@ -98,11 +99,9 @@ public class MlkitPlugin implements MethodCallHandler {
         return arr;
     }
 
-    public static int toDim(ArrayList<Integer> list) {
-        int l = list.size();
+    public static int toDim(int[] dims) {
         int dim = 1;
-        Iterator<Integer> iter = list.iterator();
-        for (int i = 0; i < l; i++) dim = dim * iter.next();
+        for (int d : dims) dim *= d;
         return dim;
     }
 
@@ -218,7 +217,7 @@ public class MlkitPlugin implements MethodCallHandler {
                                 .setLandmarkMode((int) optionsMap.get("landmarkType"))
                                 .setClassificationMode((int) optionsMap.get("classificationType"))
                                 .setMinFaceSize((float) (double) optionsMap.get("minFaceSize"));
-                if((boolean) optionsMap.get("isTrackingEnabled")){
+                if ((boolean) optionsMap.get("isTrackingEnabled")) {
                     builder.enableTracking();
                 }
                 FirebaseVisionFaceDetectorOptions options = builder.build();
@@ -291,7 +290,6 @@ public class MlkitPlugin implements MethodCallHandler {
             // TODO: next release
 
         } else if (call.method.equals("FirebaseModelInterpreter#run")) {
-            FirebaseModelInterpreter mInterpreter;
             String cloudModelName = call.argument("cloudModelName");
             try {
                 FirebaseModelOptions modelOptions = new FirebaseModelOptions.Builder()
@@ -301,39 +299,52 @@ public class MlkitPlugin implements MethodCallHandler {
                         .build();
 
                 Map<String, Object> inputOutputOptionsMap = call.argument("inputOutputOptions");
-                int inputIndex = (int) inputOutputOptionsMap.get("inputIndex");
-                int inputDataType = (int) inputOutputOptionsMap.get("inputDataType");
-                ArrayList<Integer> _inputDims = (ArrayList<Integer>) inputOutputOptionsMap.get("inputDims");
-                final int[] inputDims = toArray(_inputDims);
+                List<Map<String, Object>> inputOptions = (ArrayList<Map<String, Object>>) inputOutputOptionsMap.get("inputOptions");
                 int outputIndex = (int) inputOutputOptionsMap.get("outputIndex");
                 final int outputDataType = (int) inputOutputOptionsMap.get("outputDataType");
                 ArrayList<Integer> _outputDims = (ArrayList<Integer>) inputOutputOptionsMap.get("outputDims");
                 int[] outputDims = toArray(_outputDims);
-                FirebaseModelInputOutputOptions inputOutputOptions =
-                        new FirebaseModelInputOutputOptions.Builder()
-                                .setInputFormat(inputIndex, inputDataType, inputDims)
-                                .setOutputFormat(outputIndex, outputDataType, outputDims)
-                                .build();
+                List<byte[]> inputBytes = (ArrayList<byte[]>) call.argument("inputBytes");
 
-                byte[] data = (byte[]) call.argument("inputBytes");
-
-                mInterpreter = FirebaseModelInterpreter.getInstance(modelOptions);
+                FirebaseModelInputOutputOptions.Builder optionsBuilder = new FirebaseModelInputOutputOptions.Builder();
                 FirebaseModelInputs.Builder inputsBuilder = new FirebaseModelInputs.Builder();
-                int bytesPerChannel = 1;
-                if(inputDataType == FirebaseModelDataType.FLOAT32 || inputDataType == FirebaseModelDataType.INT32) {
-                    bytesPerChannel = 4;
-                }else if(inputDataType == FirebaseModelDataType.LONG){
-                    bytesPerChannel = 8;
-                }
-                ByteBuffer buffer = ByteBuffer.allocateDirect(toDim(_inputDims)*bytesPerChannel);
-                buffer.order(ByteOrder.nativeOrder());
-                buffer.rewind();
-                buffer.put(data);
-                inputsBuilder.add(buffer);
 
+                if (inputOptions.size() != inputBytes.size()) {
+                    result.error("UNAVAILABLE", "number of elements in inputOptions and inputBytes should be equal", null);
+                    return;
+                }
+
+                for (int index = 0; index < inputOptions.size(); index++) {
+                    Map<String, Object> inputOption = inputOptions.get(index);
+                    int inputIndex = (int) inputOption.get("inputIndex");
+                    int inputDataType = (int) inputOption.get("inputDataType");
+                    int[] inputDims = toArray((ArrayList<Integer>) inputOption.get("inputDims"));
+                    optionsBuilder.setInputFormat(inputIndex, inputDataType, inputDims);
+
+                    byte[] data = inputBytes.get(index);
+
+                    int bytesPerChannel = 1;
+                    if (inputDataType == FirebaseModelDataType.FLOAT32 || inputDataType == FirebaseModelDataType.INT32) {
+                        bytesPerChannel = 4;
+                    } else if (inputDataType == FirebaseModelDataType.LONG) {
+                        bytesPerChannel = 8;
+                    }
+                    ByteBuffer buffer = ByteBuffer.allocateDirect(toDim(inputDims) * bytesPerChannel);
+                    buffer.order(ByteOrder.nativeOrder());
+                    buffer.rewind();
+                    buffer.put(data);
+                    inputsBuilder.add(buffer);
+                }
+
+                optionsBuilder.setOutputFormat(outputIndex, outputDataType, outputDims);
+
+                FirebaseModelInputOutputOptions options = optionsBuilder.build();
                 FirebaseModelInputs inputs = inputsBuilder.build();
+
+                FirebaseModelInterpreter mInterpreter = FirebaseModelInterpreter.getInstance(modelOptions);
+
                 mInterpreter
-                        .run(inputs, inputOutputOptions)
+                        .run(inputs, options)
                         .addOnFailureListener(new OnFailureListener() {
                             @Override
                             public void onFailure(@NonNull Exception e) {
@@ -671,12 +682,12 @@ public class MlkitPlugin implements MethodCallHandler {
             if (orientation == ExifInterface.ORIENTATION_ROTATE_180) rotationAngle = 180;
             if (orientation == ExifInterface.ORIENTATION_ROTATE_270) rotationAngle = 270;
             return rotationAngle;
-        }catch(IOException e){
+        } catch (IOException e) {
             throw e;
         }
     }
 
-    private Bitmap createRotatedBitmap(Bitmap bm, BitmapFactory.Options bounds, int rotationAngle){
+    private Bitmap createRotatedBitmap(Bitmap bm, BitmapFactory.Options bounds, int rotationAngle) {
         Matrix matrix = new Matrix();
         matrix.setRotate(rotationAngle, (float) bm.getWidth() / 2, (float) bm.getHeight() / 2);
         return Bitmap.createBitmap(bm, 0, 0, bounds.outWidth, bounds.outHeight, matrix, true);

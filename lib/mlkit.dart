@@ -252,7 +252,7 @@ class FirebaseModelInterpreter {
   FirebaseModelInterpreter._() {}
 
   Future<List<dynamic>> run(String cloudModelName,
-      FirebaseModelInputOutputOptions options, Uint8List inputBytes) async {
+      FirebaseModelInputOutputOptions options, List<Uint8List> inputBytes) async {
     try {
       dynamic results =
           await _channel.invokeMethod("FirebaseModelInterpreter#run", {
@@ -273,21 +273,32 @@ class FirebaseModelInterpreter {
 // android
 //   https://firebase.google.com/docs/reference/android/com/google/firebase/ml/custom/FirebaseModelInputOutputOptions.Builder
 class FirebaseModelInputOutputOptions {
-  final int inputIndex;
-  final FirebaseModelDataType inputDataType;
-  final List<int> inputDims;
-  final int outputIndex;
-  final FirebaseModelDataType outputDataType;
-  final List<int> outputDims;
+  List<Map> inputOptions;
+  int outputIndex;
+  FirebaseModelDataType outputDataType;
+  List<int> outputDims;
 
-  const FirebaseModelInputOutputOptions(this.inputIndex, this.inputDataType,
-      this.inputDims, this.outputIndex, this.outputDataType, this.outputDims);
+  FirebaseModelInputOutputOptions setInputFormat(
+      int index, FirebaseModelDataType dataType, List<int> dims) {
+    inputOptions.add({
+      'inputIndex': index,
+      'inputDataType': dataType,
+      'inputDims': dims,
+    });
+    return this;
+  }
+
+  FirebaseModelInputOutputOptions setOutputFormat(
+      int index, FirebaseModelDataType dataType, List<int> dims) {
+    outputIndex = index;
+    outputDataType = dataType;
+    outputDims = dims;
+    return this;
+  }
 
   Map<String, dynamic> asDictionary() {
     return {
-      "inputIndex": inputIndex,
-      "inputDataType": inputDataType.value,
-      "inputDims": inputDims,
+      "inputOptions": inputOptions,
       "outputIndex": outputIndex,
       "outputDataType": outputDataType.value,
       "outputDims": outputDims,
